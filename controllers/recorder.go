@@ -26,80 +26,42 @@ import (
 
 	v2alpha1 "github.com/iter8-tools/etc3/api/v2alpha1"
 	"github.com/iter8-tools/etc3/util"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	corev1 "k8s.io/api/core/v1"
 )
 
-// Methods here share a change simultaneously in many ways:
-//   - change in status condition
-//   - log it
-//   - issue a Kubernetes event
-//   - issue a notification
-//   - call a webhook
-// This can also be used to take a specfic action. This should probably be avoided.
+func (r *ExperimentReconciler) recordExperimentFailed(ctx context.Context, instance *v2alpha1.Experiment,
+	reason string, messageFormat string, messageA ...interface{}) {
+	r.recordEvent(ctx, instance,
+		v2alpha1.ExperimentConditionExperimentFailed, corev1.ConditionTrue,
+		reason, messageFormat, messageA...)
+}
 
-func (r *ExperimentReconciler) markAnalyticsServiceError(ctx context.Context, instance *v2alpha1.Experiment,
+func (r *ExperimentReconciler) recordExperimentCompleted(ctx context.Context, instance *v2alpha1.Experiment,
 	messageFormat string, messageA ...interface{}) {
-	if updated, reason := instance.Status.MarkAnalyticsServiceError(messageFormat, messageA...); updated {
+	r.recordEvent(ctx, instance,
+		v2alpha1.ExperimentConditionExperimentCompleted, corev1.ConditionTrue,
+		v2alpha1.ReasonExperimentCompleted, messageFormat, messageA...)
+}
+
+func (r *ExperimentReconciler) recordExperimentProgress(ctx context.Context, instance *v2alpha1.Experiment,
+	reason string, messageFormat string, messageA ...interface{}) {
+	r.recordEvent(ctx, instance,
+		v2alpha1.ExperimentConditionExperimentCompleted, corev1.ConditionFalse,
+		reason, messageFormat, messageA...)
+}
+
+// record the event in a variety of ways. Note that we do not want to report an event more than once
+// in a log message, kubernetes event or notification. Consequently, we must pay attention to whether
+// or not we are recording an event for the first time or repeating it. We do this by first updating
+// a condition on instance.Status. If the condition changes, we report the event externally.
+func (r *ExperimentReconciler) recordEvent(ctx context.Context, instance *v2alpha1.Experiment,
+	condition v2alpha1.ExperimentConditionType, status corev1.ConditionStatus,
+	reason string, messageFormat string, messageA ...interface{}) {
+	ok := instance.Status.MarkCondition(condition, status, reason, messageFormat, messageA...)
+	if ok {
 		util.Logger(ctx).Info(reason + ", " + fmt.Sprintf(messageFormat, messageA...))
-		// record event
-		// send notifications
-		r.StatusModified = true
-	}
-}
-
-func (r *ExperimentReconciler) markAnalyticsServiceRunning(ctx context.Context, instance *v2alpha1.Experiment,
-	messageFormat string, messageA ...interface{}) {
-	if updated, reason := instance.Status.MarkAnalyticsServiceRunning(messageFormat, messageA...); updated {
-		util.Logger(ctx).Info(reason)
-		// record event
-		// send notifications
-		r.StatusModified = true
-	}
-}
-
-func (r *ExperimentReconciler) markMetricUnavailable(ctx context.Context, instance *v2alpha1.Experiment,
-	messageFormat string, messageA ...interface{}) {
-	if updated, reason := instance.Status.MarkMetricUnavailable(messageFormat, messageA...); updated {
-		util.Logger(ctx).Info(reason)
-		// record event
-		// send notifications
-		r.StatusModified = true
-	}
-}
-
-func (r *ExperimentReconciler) markMetricsSynced(ctx context.Context, instance *v2alpha1.Experiment,
-	messageFormat string, messageA ...interface{}) {
-	log := util.Logger(ctx)
-	log.Info("markMetricsSynced() called")
-	defer log.Info("markMetricsSynced() completed")
-
-	if updated, reason := instance.Status.MarkMetricsSynced(log, messageFormat, messageA...); updated {
-		util.Logger(ctx).Info(reason)
-		// record event
-		// send notifications
-		r.StatusModified = true
-	}
-}
-
-func (r *ExperimentReconciler) markIterationUpdate(ctx context.Context, instance *v2alpha1.Experiment,
-	messageFormat string, messageA ...interface{}) {
-	if updated, reason := instance.Status.MarkIterationUpdate(messageFormat, messageA...); updated {
-		util.Logger(ctx).Info(reason + ", " + fmt.Sprintf(messageFormat, messageA...))
-		// record event
-		// send notifications
-		r.StatusModified = true
-	}
-}
-
-func (r *ExperimentReconciler) markExperimentCompleted(ctx context.Context, instance *v2alpha1.Experiment,
-	messageFormat string, messageA ...interface{}) {
-	if updated, reason := instance.Status.MarkExperimentCompleted(messageFormat, messageA...); updated {
-		util.Logger(ctx).Info(reason + ", " + fmt.Sprintf(messageFormat, messageA...))
-		// record event
-		// send notifications
-
-		now := metav1.Now()
-		instance.Status.EndTime = &now
+		r.EventRecorder.Eventf(instance, corev1.EventTypeNormal, reason, messageFormat, messageA...)
+		// FUTURE: send notifications
 		r.StatusModified = true
 	}
 }
