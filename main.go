@@ -20,6 +20,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -41,6 +42,7 @@ var (
 )
 
 const (
+	// Iter8Controller string constant used to label event recorder
 	Iter8Controller = "iter8"
 )
 
@@ -80,7 +82,7 @@ func main() {
 	}
 
 	cfg := configuration.Iter8Config{}
-	if err := configuration.ReadConfig(os.Getenv("DEFAULTS_DIR"), &cfg); err != nil {
+	if err := configuration.ReadConfig(path.Join(os.Getenv("DEFAULTS_DIR"), "defaults.yaml"), &cfg); err != nil {
 		setupLog.Error(err, "unable to configure manager")
 		os.Exit(1)
 	}
