@@ -54,7 +54,12 @@ type ExperimentReconciler struct {
 	Iter8Config    configuration.Iter8Config
 	HTTP           analytics.HTTP
 	StatusModified bool
+	ReleaseEvents  chan event.GenericEvent
 }
+
+const (
+	iter8FinalizerName = "experiments.iter8.tools.finalizer"
+)
 
 /* RBAC roles are handwritten in config/rbac-iter8 so that different roles can be assigned
 //   to the controller and to the handlers
@@ -89,10 +94,34 @@ func (r *ExperimentReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) 
 
 	log.Info("found instance", "instance", instance, "updatedStatus", r.StatusModified) //, "spec", instance.Spec, "status", instance.Status)
 
-	// ADD FINALIZER (check first...)
-	// If instance does not have a finalizer, add one here (if desired)
-	// IF DELETION, RUN FINALIZER and REMOVE FINALIZER
-	// If instance deleted and have a finalizer, run it now
+	// Add FINALIZER if not present; run finalizer if deleting experiment
+	if instance.ObjectMeta.DeletionTimestamp.IsZero() {
+		// The experiment is not being deleted, so if it doesn't have a finalizer we add one
+		// and return; update will retrigger reconcile
+		if !containsString(instance.ObjectMeta.Finalizers, iter8FinalizerName) {
+			instance.ObjectMeta.Finalizers = append(instance.ObjectMeta.Finalizers, iter8FinalizerName)
+			if err := r.Update(ctx, instance); err != nil {
+				return ctrl.Result{}, err
+			}
+		}
+	} else {
+		// the experiment is being deleted, look for a finalizer and run it
+		if containsString(instance.ObjectMeta.Finalizers, iter8FinalizerName) {
+			if err := r.finalizeExperiment(ctx, instance); err != nil {
+				// if failed, return error so can retry
+				return ctrl.Result{}, err
+			}
+
+			instance.ObjectMeta.Finalizers = removeString(instance.ObjectMeta.Finalizers, iter8FinalizerName)
+			if err := r.Update(ctx, instance); err != nil {
+				return ctrl.Result{}, err
+			}
+			// on success, remove finalizer so that deletion can proceed
+			return ctrl.Result{}, nil
+		}
+		// is being deleted and there was no finalizer; just exit
+		return ctrl.Result{}, nil
+	}
 
 	// If instance has never been seen before, initialize status object
 	if instance.Status.InitTime == nil {
@@ -138,6 +167,7 @@ func (r *ExperimentReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) 
 	}
 
 	// LATE INITIALIZATION of instance.Spec
+	// TODO move to mutating webhook
 	originalSpec := instance.Spec.DeepCopy()
 	if ok := r.LateInitialization(ctx, instance); !ok {
 		return r.failExperiment(ctx, instance, nil)
@@ -154,20 +184,18 @@ func (r *ExperimentReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) 
 
 	// VALIDATE EXPERIMENT: basic validation of experiment object
 	// See IsExperimentValid() for list of validations done
+	// TODO move to validating web hook
 	if !r.IsExperimentValid(ctx, instance) {
 		return r.failExperiment(ctx, instance, nil)
 	}
 
 	// TARGET ACQUISITION
-	// ensure that the target is not involved in another experiment
-	// record experiment with annotation in target?
-	// if !TargetAquired() {
-	// 	if CanAquireTarget() {
-	// 		AquireTarget()
-	// 		   r.markExperimentProgress(ctx, instance, v2alpha1.ReasonTargetAcquired, "Target '%s' acquired", instance.Spec.Target)
-	// 	}
-	// 	r.endRequest()
-	// }
+	// Ensure that we are the only experiment proceding with the same target
+	// If we find another, end request and wait to be triggered again
+	if !r.acquireTarget(ctx, instance) {
+		// do not have the target, quit
+		return r.endRequest(ctx, instance)
+	}
 
 	// RUN START HANDLER
 	// Note: since we haven't already checked it may already have been started
@@ -252,9 +280,33 @@ func (r *ExperimentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(&source.Kind{Type: &batchv1.Job{}},
 			&handler.EnqueueRequestsFromMapFunc{ToRequests: jobToExperiment},
 			builder.WithPredicates(jobPredicateFuncs)).
-		// Owns(&batchv1.Job{}).
+		Watches(&source.Channel{Source: r.ReleaseEvents}, &handler.EnqueueRequestForObject{}).
 		Complete(r)
 }
+
+// Helper functions for FINALIZERS
+
+// Helper functions to check and remove string from a slice of strings.
+func containsString(slice []string, s string) bool {
+	for _, item := range slice {
+		if item == s {
+			return true
+		}
+	}
+	return false
+}
+
+func removeString(slice []string, s string) (result []string) {
+	for _, item := range slice {
+		if item == s {
+			continue
+		}
+		result = append(result, item)
+	}
+	return
+}
+
+// Helper function for LATE INITIALIZATION
 
 // LateInitialization initializes any fields in e.Spec not already set
 // Returns false if something went wrong
@@ -262,6 +314,8 @@ func (r *ExperimentReconciler) LateInitialization(ctx context.Context, instance 
 	instance.Spec.InitializeSpec(r.Iter8Config)
 	return r.ReadMetrics(ctx, instance)
 }
+
+// Helper functions for TERMINATION
 
 // endRequest writes any changes (if needed) in preparation for ending processing of this reconcile request
 func (r *ExperimentReconciler) endRequest(ctx context.Context, instance *v2alpha1.Experiment, interval ...time.Duration) (ctrl.Result, error) {
@@ -284,7 +338,7 @@ func (r *ExperimentReconciler) endExperiment(ctx context.Context, instance *v2al
 	log.Info("endExperiment called")
 	defer log.Info("endExperiment completed")
 
-	// trigger next experiment
+	r.triggerNextExperiment(ctx, instance)
 	return r.endRequest(ctx, instance)
 }
 
@@ -370,6 +424,34 @@ func (r *ExperimentReconciler) updateIfNeeded(ctx context.Context, instance *v2a
 		}
 		r.StatusModified = false
 	}
+
+	return nil
+}
+
+func (r *ExperimentReconciler) finalizeExperiment(ctx context.Context, instance *v2alpha1.Experiment) error {
+	log := util.Logger(ctx)
+	log.Info("finalizeExperiment called")
+	defer log.Info("finalizeExperiment completed")
+
+	// The experiment finalizer does the following:
+	//     1. Delete any handler jobs
+	//     2. Trigger any waiting experiments
+
+	//     1. Delete any handler jobs
+	for _, handlerType := range []HandlerType{HandlerTypeStart, HandlerTypeFinish, HandlerTypeFailure, HandlerTypeRollback} {
+		handler := r.GetHandler(instance, handlerType)
+		if handler != nil {
+			log.Info("finalizeExperiment deleting job for handler", handler)
+			if err := r.deleteHandlerJob(ctx, instance, handler); err != nil {
+				return err
+			}
+		}
+	}
+
+	//     2. Trigger any waiting experiments
+	// endExperiment() triggers any waiting experiment
+	log.Info("finalizeExperiment triggering next experiment")
+	r.triggerNextExperiment(ctx, instance)
 
 	return nil
 }
