@@ -37,11 +37,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	"sigs.k8s.io/controller-runtime/pkg/envtest/printer"
 	"sigs.k8s.io/controller-runtime/pkg/event"
-	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	v2alpha1 "github.com/iter8-tools/etc3/api/v2alpha1"
 	"github.com/iter8-tools/etc3/configuration"
+	"github.com/iter8-tools/etc3/util"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -51,7 +51,7 @@ import (
 var cfg *rest.Config
 var k8sClient client.Client
 var testEnv *envtest.Environment
-var lg logr.Logger
+var lg logr.Logger = ctrl.Log.WithName("etc3").WithName("test")
 var recorder record.EventRecorder
 var reconciler *ExperimentReconciler
 
@@ -89,7 +89,8 @@ func TestAPIs(t *testing.T) {
 }
 
 var _ = BeforeSuite(func(done Done) {
-	logf.SetLogger(zap.LoggerTo(GinkgoWriter, true))
+	// logf.SetLogger(zap.LoggerTo(GinkgoWriter, true))
+	ctrl.SetLogger(zap.LoggerTo(GinkgoWriter, true))
 
 	By("bootstrapping test environment")
 	testEnv = &envtest.Environment{
@@ -106,19 +107,12 @@ var _ = BeforeSuite(func(done Done) {
 
 	// +kubebuilder:scaffold:scheme
 
-	// k8sClient, err = client.New(cfg, client.Options{Scheme: scheme.Scheme})
-	// Expect(err).ToNot(HaveOccurred())
-	// Expect(k8sClient).ToNot(BeNil())
-
 	k8sManager, err := ctrl.NewManager(cfg, ctrl.Options{
 		Scheme: scheme.Scheme,
 	})
 	Expect(err).ToNot(HaveOccurred())
 
-	// restCfg, err := config.GetConfig()
-	// Expect(err).ToNot(HaveOccurred())
-
-	cfg := configuration.NewIter8Config().
+	iter8config := configuration.NewIter8Config().
 		WithStrategy(string(v2alpha1.StrategyTypeCanary), map[string]string{"start": "start", "finish": "finish", "rollback": "finish", "failure": "finish"}).
 		WithStrategy(string(v2alpha1.StrategyTypeAB), map[string]string{"start": "start", "finish": "finish", "rollback": "finish", "failure": "finish"}).
 		WithStrategy(string(v2alpha1.StrategyTypeConformance), map[string]string{"start": "start"}).
@@ -129,8 +123,6 @@ var _ = BeforeSuite(func(done Done) {
 
 	k8sClient = k8sManager.GetClient()
 	Expect(k8sClient).ToNot(BeNil())
-
-	lg := ctrl.Log.WithName("controllers").WithName("Experiment")
 
 	testTransport := &testHTTP{
 		analysis: &v2alpha1.Analysis{
@@ -159,9 +151,9 @@ var _ = BeforeSuite(func(done Done) {
 		Client:        k8sClient,
 		Log:           lg,
 		Scheme:        k8sManager.GetScheme(),
-		RestConfig:    nil, // restCfg,
+		RestConfig:    cfg,
 		EventRecorder: recorder,
-		Iter8Config:   cfg,
+		Iter8Config:   iter8config,
 		HTTP:          testTransport,
 		ReleaseEvents: make(chan event.GenericEvent),
 	}
@@ -182,19 +174,18 @@ var _ = AfterSuite(func() {
 	Expect(err).ToNot(HaveOccurred())
 })
 
-func isDeployed(ctx context.Context, name string, ns string) bool {
+func isDeployed(name string, ns string) bool {
 	exp := &v2alpha1.Experiment{}
-	err := k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: ns}, exp)
+	err := k8sClient.Get(context.Background(), types.NamespacedName{Name: name, Namespace: ns}, exp)
 	if err != nil {
 		return false
 	}
-
 	return true
 }
 
-func hasTarget(ctx context.Context, name string, ns string) bool {
+func hasTarget(name string, ns string) bool {
 	exp := &v2alpha1.Experiment{}
-	err := k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: ns}, exp)
+	err := k8sClient.Get(context.Background(), types.NamespacedName{Name: name, Namespace: ns}, exp)
 	if err != nil {
 		return false
 	}
@@ -202,18 +193,18 @@ func hasTarget(ctx context.Context, name string, ns string) bool {
 	return exp.Status.GetCondition(v2alpha1.ExperimentConditionTargetAcquired).IsTrue()
 }
 
-func completes(ctx context.Context, name string, ns string) bool {
+func completes(name string, ns string) bool {
 	exp := &v2alpha1.Experiment{}
-	err := k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: ns}, exp)
+	err := k8sClient.Get(context.Background(), types.NamespacedName{Name: name, Namespace: ns}, exp)
 	if err != nil {
 		return false
 	}
 	return exp.Status.GetCondition(v2alpha1.ExperimentConditionExperimentCompleted).IsTrue()
 }
 
-func completesSuccessfully(ctx context.Context, name string, ns string) bool {
+func completesSuccessfully(name string, ns string) bool {
 	exp := &v2alpha1.Experiment{}
-	err := k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: ns}, exp)
+	err := k8sClient.Get(context.Background(), types.NamespacedName{Name: name, Namespace: ns}, exp)
 	if err != nil {
 		return false
 	}
@@ -223,9 +214,24 @@ func completesSuccessfully(ctx context.Context, name string, ns string) bool {
 	return completed && successful
 }
 
-func isDeleted(ctx context.Context, name string, ns string) bool {
+func isDeleted(name string, ns string) bool {
 	exp := &v2alpha1.Experiment{}
-	err := k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: ns}, exp)
+	err := k8sClient.Get(context.Background(), types.NamespacedName{Name: name, Namespace: ns}, exp)
 	return err != nil &&
 		(errors.IsNotFound(err) || errors.IsGone(err))
+}
+
+type check func(*v2alpha1.Experiment) bool
+
+func hasValue(name string, ns string, check check) bool {
+	exp := &v2alpha1.Experiment{}
+	err := k8sClient.Get(context.Background(), types.NamespacedName{Name: name, Namespace: ns}, exp)
+	if err != nil {
+		return false
+	}
+	return check(exp)
+}
+
+func ctx() context.Context {
+	return context.WithValue(context.Background(), util.LoggerKey, ctrl.Log)
 }

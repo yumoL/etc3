@@ -25,12 +25,13 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 )
 
-var _ = Describe("Experiment validation", func() {
+var _ = Describe("Experiment Validation", func() {
+	ctx := context.Background()
+
 	Context("When creating an experiment with an invalid spec.duration.maxIteration", func() {
 		testName := "test-invalid-duration"
 		testNamespace := "default"
 		It("Should fail to create experiment", func() {
-			ctx := context.Background()
 			experiment := v2alpha1.NewExperiment(testName, testNamespace).
 				WithTarget("target").
 				WithStrategy(v2alpha1.StrategyTypeCanary).
@@ -40,9 +41,7 @@ var _ = Describe("Experiment validation", func() {
 			Expect(k8sClient.Create(ctx, experiment)).ShouldNot(Succeed())
 		})
 	})
-})
 
-var _ = Describe("Experiment validation", func() {
 	Context("When creating an experiment with a valid spec.duration.maxIteration", func() {
 		testName := "test-valid-duration"
 		testNamespace := "default"
@@ -57,14 +56,10 @@ var _ = Describe("Experiment validation", func() {
 			Expect(k8sClient.Create(ctx, experiment)).Should(Succeed())
 		})
 	})
-})
 
-var _ = Describe("Late Initialization", func() {
-	var ctx context.Context
 	Context("When creating a valid new Experiment", func() {
 		It("Should successfully complete late initialization", func() {
 			By("Providing a request-count metric")
-			ctx = context.Background()
 			m := v2alpha1.NewMetric("request-count", "default").
 				WithType(v2alpha1.CounterMetricType).
 				WithParams(map[string]string{"param": "value"}).
@@ -120,8 +115,9 @@ var _ = Describe("Late Initialization", func() {
 })
 
 var _ = Describe("Experiment proceeds", func() {
+	ctx := context.Background()
+
 	Context("Early event trigger", func() {
-		ctx := context.Background()
 		testName := "early-reconcile"
 		testNamespace := "default"
 		It("Experiment should complete", func() {
