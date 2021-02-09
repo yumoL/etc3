@@ -16,39 +16,35 @@ limitations under the License.
 
 package v2alpha1
 
-// StrategyType identifies the type of experiment type
-// +kubebuilder:validation:Enum=Canary;A/B;A/B/N;Conformance;BlueGreen
-type StrategyType string
+// TestingPatternType identifies the type of experiment type
+// +kubebuilder:validation:Enum=Canary;A/B;A/B/N;Conformance
+type TestingPatternType string
 
 const (
-	// StrategyTypeCanary indicates an experiment is a canary experiment
-	StrategyTypeCanary StrategyType = "Canary"
+	// TestingPatternCanary indicates an experiment is a canary experiment
+	TestingPatternCanary TestingPatternType = "Canary"
 
-	// StrategyTypeAB indicates an experiment is a A/B experiment
-	StrategyTypeAB StrategyType = "A/B"
+	// TestingPatternAB indicates an experiment is a A/B experiment
+	TestingPatternAB TestingPatternType = "A/B"
 
-	// StrategyTypeABN indicates an experiment is a A/B/n experiment
-	StrategyTypeABN StrategyType = "A/B/N"
+	// TestingPatternABN indicates an experiment is a A/B/n experiment
+	TestingPatternABN TestingPatternType = "A/B/N"
 
-	// StrategyTypeConformance indicates an experiment is a conformance experiment
-	StrategyTypeConformance StrategyType = "Conformance"
-
-	// StrategyTypeBlueGreen indicates an experiment is a blue-green experiment
-	StrategyTypeBlueGreen StrategyType = "BlueGreen"
+	// TestingPatternConformance indicates an experiment is a conformance experiment
+	TestingPatternConformance TestingPatternType = "Conformance"
 )
 
-// ValidStrategyTypes are legal strategy types iter8 is aware of
+// ValidTestingPatternTypes are legal strategy types iter8 is aware of
 // Should match list in github.com/iter8-tools/etc3/api/v2alpha1 (cf. constants.go)
-var ValidStrategyTypes []StrategyType = []StrategyType{
-	StrategyTypeCanary,
-	StrategyTypeAB,
-	StrategyTypeABN,
-	StrategyTypeConformance,
-	StrategyTypeBlueGreen,
+var ValidTestingPatternTypes []TestingPatternType = []TestingPatternType{
+	TestingPatternCanary,
+	TestingPatternAB,
+	TestingPatternABN,
+	TestingPatternConformance,
 }
 
 // AlgorithmType identifies the algorithms that can be used
-// +kubebuilder:validation:Enum=FixedSplit;Progressive
+// +kubebuilder:validation:Enum=FixedSplit;Progressive;BlueGreen
 type AlgorithmType string
 
 const (
@@ -57,6 +53,9 @@ const (
 
 	// AlgorithmTypeProgressive indicates that the the weight distribution algorithm is progressive
 	AlgorithmTypeProgressive AlgorithmType = "Progressive"
+
+	// AlgorithmTypeProgressive indicates that the the weight distribution algorithm is progressive
+	AlgorithmTypeBlueGreen AlgorithmType = "BlueGreen"
 )
 
 // PreferredDirectionType defines the valid values for reward.PreferredDirection
