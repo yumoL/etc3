@@ -41,15 +41,31 @@ type HandlerType string
 const (
 	// ServiceAccountForHandlers is the service account name to use for jobs
 	ServiceAccountForHandlers string = "iter8-handlers"
-	// HandlerTypeStart start handler
+	// HandlerTypeStart is the type of a start handler
 	HandlerTypeStart HandlerType = "Start"
-	// HandlerTypeFinish finish handler
+	// HandlerTypeFinish is the type of a finish handler
 	HandlerTypeFinish HandlerType = "Finish"
-	// HandlerTypeRollback rollback handler
+	// HandlerTypeRollback is the type of a rollback handler
 	HandlerTypeRollback HandlerType = "Rollback"
-	// HandlerTypeFailure failure handler
+	// HandlerTypeFailure is the type of a failure handler
 	HandlerTypeFailure HandlerType = "Failure"
+	// HandlerTypeLoop is the type of a loop handler
+	HandlerTypeLoop HandlerType = "Loop"
 )
+
+var allHandlerTypes []HandlerType = []HandlerType{
+	HandlerTypeStart,
+	HandlerTypeFinish,
+	HandlerTypeRollback,
+	HandlerTypeFailure,
+	HandlerTypeLoop,
+}
+
+var terminalHandlerTypes []HandlerType = []HandlerType{
+	HandlerTypeFinish,
+	HandlerTypeRollback,
+	HandlerTypeFailure,
+}
 
 // GetHandler returns handler of a given type
 func (r *ExperimentReconciler) GetHandler(instance *v2alpha1.Experiment, t HandlerType) *string {
@@ -60,19 +76,21 @@ func (r *ExperimentReconciler) GetHandler(instance *v2alpha1.Experiment, t Handl
 		return instance.Spec.GetFinishHandler(r.Iter8Config)
 	case HandlerTypeRollback:
 		return instance.Spec.GetRollbackHandler(r.Iter8Config)
-	default: // case HandlerTypeFailure:
+	case HandlerTypeFailure:
 		return instance.Spec.GetFailureHandler(r.Iter8Config)
+	default: // case HandlerTypeLoop:
+		return instance.Spec.GetLoopHandler(r.Iter8Config)
 	}
 }
 
 // IsHandlerLaunched returns the handler (job) if one has been launched
 // Otherwise it returns nil
-func (r *ExperimentReconciler) IsHandlerLaunched(ctx context.Context, instance *v2alpha1.Experiment, handler string) (*batchv1.Job, error) {
+func (r *ExperimentReconciler) IsHandlerLaunched(ctx context.Context, instance *v2alpha1.Experiment, handler string, handlerInstance *int) (*batchv1.Job, error) {
 	log := util.Logger(ctx)
 	log.Info("IsHandlerLaunched called", "handler", handler)
 
 	job := &batchv1.Job{}
-	ref := types.NamespacedName{Namespace: r.Iter8Config.Namespace, Name: jobName(instance, handler)}
+	ref := types.NamespacedName{Namespace: r.Iter8Config.Namespace, Name: jobName(instance, handler, handlerInstance)}
 	err := r.Get(ctx, ref, job)
 	if err != nil {
 		log.Info("IsHandlerLaunched returning", "handler", handler, "launched", false)
@@ -83,7 +101,7 @@ func (r *ExperimentReconciler) IsHandlerLaunched(ctx context.Context, instance *
 }
 
 // LaunchHandler lauches the job that implements a particular handler
-func (r *ExperimentReconciler) LaunchHandler(ctx context.Context, instance *v2alpha1.Experiment, handler string) error {
+func (r *ExperimentReconciler) LaunchHandler(ctx context.Context, instance *v2alpha1.Experiment, handler string, handlerInstance *int) error {
 	log := util.Logger(ctx)
 	log.Info("LaunchHandler called", "handler", handler)
 	defer log.Info("LaunchHandler completed", "handler", handler)
@@ -94,7 +112,6 @@ func (r *ExperimentReconciler) LaunchHandler(ctx context.Context, instance *v2al
 	if err := readJobSpec(handlerJobYaml, &job); err != nil {
 		return err
 	}
-	log.Info("launchHandler", "initial Job", job)
 
 	// update job spec:
 	//   - assign a name unique for this experiment, handler type
@@ -102,7 +119,7 @@ func (r *ExperimentReconciler) LaunchHandler(ctx context.Context, instance *v2al
 	//   - define labels "iter8/experimentName" and "iter8/experimentNamespace" used for event filtering
 	//   - set serviceAccountName to iter8-handlers
 	//   - set environment variables: EXPERIMENT_NAME, EXPERIMENT_NAMESPACE
-	job.Name = jobName(instance, handler)
+	job.Name = jobName(instance, handler, handlerInstance)
 	job.Namespace = r.Iter8Config.Namespace
 	if job.Spec.Template.ObjectMeta.Labels == nil {
 		job.Spec.Template.ObjectMeta.SetLabels(map[string]string{})
@@ -128,7 +145,7 @@ func (r *ExperimentReconciler) LaunchHandler(ctx context.Context, instance *v2al
 	// Perhaps no owner is necessary. Or perhaps the iter8-controller Deployment
 	// // assign owner to job (so job is automatically deleted when experiment is deleted)
 	// controllerutil.SetControllerReference(instance, &job, r.Scheme)
-	// log.Info("LaunchHandler job", "job", job)
+	log.Info("LaunchHandler job", "job", job)
 
 	// launch job
 	if err := r.Create(ctx, &job); err != nil {
@@ -251,9 +268,14 @@ func HandlerJobFailed(handlerJob *batchv1.Job) bool {
 }
 
 // generate job name
-func jobName(instance *v2alpha1.Experiment, handler string) string {
+func jobName(instance *v2alpha1.Experiment, handler string, handlerInstance *int) string {
 	uid := string(instance.UID)
-	return fmt.Sprintf("%s-handler-%s-%s", handler, instance.Name, uid[strings.LastIndex(uid, "-")+1:])
+	name := fmt.Sprintf("%s-handler-%s-%s", handler, instance.Name, uid[strings.LastIndex(uid, "-")+1:])
+	if handlerInstance != nil {
+		name = fmt.Sprintf("%s-%d", name, *handlerInstance)
+	}
+
+	return name
 }
 
 // GetJobCondition is a utility to retrieve a condition from a Job resource
@@ -284,7 +306,7 @@ const (
 )
 
 // GetHandlerStatus determines a handlers status
-func (r *ExperimentReconciler) GetHandlerStatus(ctx context.Context, instance *v2alpha1.Experiment, handler *string) HandlerStatusType {
+func (r *ExperimentReconciler) GetHandlerStatus(ctx context.Context, instance *v2alpha1.Experiment, handler *string, handlerInstance *int) HandlerStatusType {
 	log := util.Logger(ctx)
 	log.Info("GetHandlerStatus called", "handler", handler)
 
@@ -294,7 +316,7 @@ func (r *ExperimentReconciler) GetHandlerStatus(ctx context.Context, instance *v
 	}
 
 	// has a handler specified
-	handlerJob, err := r.IsHandlerLaunched(ctx, instance, *handler)
+	handlerJob, err := r.IsHandlerLaunched(ctx, instance, *handler, handlerInstance)
 	if err != nil {
 		if !errors.IsNotFound(err) {
 			log.Error(err, "Error trying to find handler job.")
@@ -325,12 +347,12 @@ func (r *ExperimentReconciler) GetHandlerStatus(ctx context.Context, instance *v
 	return HandlerStatusRunning
 }
 
-func (r *ExperimentReconciler) deleteHandlerJob(ctx context.Context, instance *v2alpha1.Experiment, handler *string) error {
+func (r *ExperimentReconciler) deleteHandlerJob(ctx context.Context, instance *v2alpha1.Experiment, handler *string, handlerInstance *int) error {
 	log := util.Logger(ctx)
 	log.Info("deleteHandlerJob called", "handler", handler)
 	defer log.Info("deleteHandlerJob completed")
 
-	handlerJob, err := r.IsHandlerLaunched(ctx, instance, *handler)
+	handlerJob, err := r.IsHandlerLaunched(ctx, instance, *handler, handlerInstance)
 	if err != nil {
 		if !errors.IsNotFound(err) {
 			log.Info("Unable to determine if handler launched", "handler", handler)

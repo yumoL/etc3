@@ -66,7 +66,7 @@ func (b *ExperimentBuilder) WithDeploymentPattern(deploymentPattern DeploymentPa
 }
 
 // WithDuration ..
-func (b *ExperimentBuilder) WithDuration(interval int32, iterationsPerLoop int32) *ExperimentBuilder {
+func (b *ExperimentBuilder) WithDuration(interval int32, iterationsPerLoop int32, maxLoops int32) *ExperimentBuilder {
 
 	if b.Spec.Duration == nil {
 		b.Spec.Duration = &Duration{}
@@ -74,6 +74,7 @@ func (b *ExperimentBuilder) WithDuration(interval int32, iterationsPerLoop int32
 
 	b.Spec.Duration.IntervalSeconds = &interval
 	b.Spec.Duration.IterationsPerLoop = &iterationsPerLoop
+	b.Spec.Duration.MaxLoops = &maxLoops
 
 	return b
 }
@@ -108,6 +109,8 @@ func (b *ExperimentBuilder) WithHandlers(handlers map[string]string) *Experiment
 			b.Spec.Strategy.Handlers.Failure = &hdlr
 		case "rollback":
 			b.Spec.Strategy.Handlers.Rollback = &hdlr
+		case "loop":
+			b.Spec.Strategy.Handlers.Loop = &hdlr
 		default:
 		}
 	}

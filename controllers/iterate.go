@@ -32,7 +32,16 @@ import (
 
 func moreIterationsNeeded(instance *v2alpha1.Experiment) bool {
 	// Are there more iterations to execute
-	return *instance.Status.CompletedIterations < instance.Spec.GetIterationsPerLoop()
+	return *instance.Status.CompletedIterations < instance.Spec.GetIterationsPerLoop()*instance.Spec.GetMaxLoops()
+}
+
+// determine if a loop is completed by determing if the number of iterations executed
+// is a multiple of duration.iterationsPerLoop
+func completedLoop(instance *v2alpha1.Experiment) (int, bool) {
+	if 0 == instance.Status.GetCompletedIterations()%instance.Spec.GetIterationsPerLoop() {
+		return int(instance.Status.GetCompletedIterations() / instance.Spec.GetIterationsPerLoop()), true
+	}
+	return -1, false
 }
 
 func (r *ExperimentReconciler) sufficientTimePassedSincePreviousIteration(ctx context.Context, instance *v2alpha1.Experiment) bool {
@@ -107,13 +116,27 @@ func (r *ExperimentReconciler) doIteration(ctx context.Context, instance *v2alph
 
 	// update completedIterations counter and record completion
 	r.completeIteration(ctx, instance)
+	r.recordExperimentProgress(ctx, instance, v2alpha1.ReasonIterationCompleted, "Completed Iteration %d", *instance.Status.CompletedIterations)
 
 	// if there are no more iterations to execute, finishExperiment
 	// otherwise, just endRequest (and requeue for later)
 	if !moreIterationsNeeded(instance) {
 		return r.finishExperiment(ctx, instance)
 	}
-	r.recordExperimentProgress(ctx, instance, v2alpha1.ReasonIterationCompleted, "Completed Iteration %d", *instance.Status.CompletedIterations)
+
+	// if we are at the end of a loop (we've executed Duration.IterationsPerLoop iterations)
+	// then call a loop handler if one is defined.
+	// Note that we on the last loop, we will not execute this code; we called returned just above.
+	if loop, ok := completedLoop(instance); ok {
+		r.recordExperimentProgress(ctx, instance, v2alpha1.ReasonIterationCompleted, "Completed Loop %d", loop)
+
+		if quit, result, err := r.launchHandlerWrapper(
+			ctx, instance, HandlerTypeLoop, handlerLaunchModifier{loop: &loop}); quit {
+			return result, err
+		}
+	}
+
+	// Not of loop or there is no loop handler --> schedule next iteration
 	return r.endRequest(ctx, instance, instance.Spec.GetIntervalAsDuration())
 }
 

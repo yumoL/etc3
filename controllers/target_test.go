@@ -65,7 +65,7 @@ var _ = Describe("Target Acquisition", func() {
 				WithTarget("unavailable-target").
 				WithTestingPattern(v2alpha1.TestingPatternConformance).
 				WithHandlers(map[string]string{"start": "none", "finish": "none"}).
-				WithDuration(3, 2).
+				WithDuration(4, 2, 1).
 				WithBaselineVersion("baseline", nil).
 				Build()
 			wantsName = "wants-target"
@@ -73,7 +73,7 @@ var _ = Describe("Target Acquisition", func() {
 				WithTarget("unavailable-target").
 				WithTestingPattern(v2alpha1.TestingPatternConformance).
 				WithHandlers(map[string]string{"start": "none", "finish": "none"}).
-				WithDuration(1, 1).
+				WithDuration(1, 1, 1).
 				WithBaselineVersion("baseline", nil).
 				Build()
 		})
@@ -114,7 +114,7 @@ var _ = Describe("Target Acquisition", func() {
 				return hasValue(hasName, testNamespace, func(exp *v2alpha1.Experiment) bool {
 					return *exp.Status.Stage == v2alpha1.ExperimentStageCompleted
 				})
-			}, 3).Should(BeTrue())
+			}, 10).Should(BeTrue())
 
 			By("Allowing the second to acquire the target and proceed")
 			Eventually(func() bool { return hasTarget(wantsName, testNamespace) }).Should(BeTrue())
@@ -123,13 +123,13 @@ var _ = Describe("Target Acquisition", func() {
 				return hasValue(wantsName, testNamespace, func(exp *v2alpha1.Experiment) bool {
 					return exp.Status.Stage != nil && (*exp.Status.Stage == v2alpha1.ExperimentStageRunning || *exp.Status.Stage == v2alpha1.ExperimentStageCompleted)
 				})
-			}, 3).Should(BeTrue())
+			}, 5).Should(BeTrue())
 			Eventually(func() bool { return completes(wantsName, testNamespace) }).Should(BeTrue())
 			Eventually(func() bool {
 				return hasValue(wantsName, testNamespace, func(exp *v2alpha1.Experiment) bool {
 					return exp.Status.Stage != nil && *exp.Status.Stage == v2alpha1.ExperimentStageCompleted
 				})
-			}, 3).Should(BeTrue())
+			}, 5).Should(BeTrue())
 
 		})
 	})
@@ -160,7 +160,7 @@ var _ = Describe("Finalizer", func() {
 				WithTarget("unavailable-target-finalizer").
 				WithTestingPattern(v2alpha1.TestingPatternConformance).
 				WithHandlers(map[string]string{"start": "none", "finish": "none"}).
-				WithDuration(4, 4).
+				WithDuration(4, 3, 1).
 				WithBaselineVersion("baseline", nil).
 				Build()
 			wantsName = "wants-target-finalizer"
@@ -168,7 +168,7 @@ var _ = Describe("Finalizer", func() {
 				WithTarget("unavailable-target-finalizer").
 				WithTestingPattern(v2alpha1.TestingPatternConformance).
 				WithHandlers(map[string]string{"start": "none", "finish": "none"}).
-				WithDuration(1, 1).
+				WithDuration(1, 1, 1).
 				WithBaselineVersion("baseline", nil).
 				Build()
 		})
@@ -206,22 +206,16 @@ var _ = Describe("Finalizer", func() {
 			exp := &v2alpha1.Experiment{}
 			Expect(k8sClient.Get(ctx(), types.NamespacedName{Name: hasName, Namespace: testNamespace}, exp)).Should(Succeed())
 			Expect(k8sClient.Delete(ctx(), exp, client.PropagationPolicy(metav1.DeletePropagationBackground))).Should(Succeed())
-			Eventually(func() bool { return isDeleted(hasName, testNamespace) }, 8).Should(BeTrue())
+			Eventually(func() bool { return isDeleted(hasName, testNamespace) }, 10).Should(BeTrue())
 
 			By("Allowing the second to acquire the target and proceed")
 			Eventually(func() bool { return hasTarget(wantsName, testNamespace) }).Should(BeTrue())
-			// wantsName should be Running
-			Eventually(func() bool {
-				return hasValue(wantsName, testNamespace, func(exp *v2alpha1.Experiment) bool {
-					return exp.Status.Stage != nil && *exp.Status.Stage == v2alpha1.ExperimentStageRunning
-				})
-			}, 3).Should(BeTrue())
-			Eventually(func() bool { return completes(wantsName, testNamespace) }).Should(BeTrue())
+			// wantsName should be run and complete
 			Eventually(func() bool {
 				return hasValue(wantsName, testNamespace, func(exp *v2alpha1.Experiment) bool {
 					return exp.Status.Stage != nil && *exp.Status.Stage == v2alpha1.ExperimentStageCompleted
 				})
-			}, 3).Should(BeTrue())
+			}, 10).Should(BeTrue())
 		})
 	})
 
