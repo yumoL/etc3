@@ -129,12 +129,8 @@ func (r *ExperimentReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) 
 		if err := r.Status().Update(ctx, instance); err != nil {
 			log.Error(err, "Failed to update Status after initialization.")
 		}
-		// r.recordExperimentInitialized(ctx, instance, "Experiment status initialized")
 		r.recordExperimentProgress(ctx, instance,
 			v2alpha1.ReasonExperimentInitialized, "Experiment status initialized")
-		// r.recordEvent(ctx, instance,
-		// 	v2alpha1.ExperimentConditionExperimentCompleted, v1.ConditionFalse,
-		// 	v2alpha1.ReasonExperimentInitialized, "Experiment status initialized")
 		return r.endRequest(ctx, instance)
 	}
 	log.Info("Status initialized")
@@ -180,7 +176,7 @@ func (r *ExperimentReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) 
 	// advance stage from Waiting to Initializing
 	// when we advance for the first time, we exit to force update; will be retriggered
 	if ok := r.advanceStage(ctx, instance, v2alpha1.ExperimentStageInitializing); ok {
-		log.Info("Reconcile ending after advance to Initializing")
+		log.Info("Update stage advance to: Initializing")
 		return r.endRequest(ctx, instance)
 	}
 
@@ -198,9 +194,12 @@ func (r *ExperimentReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) 
 	log.Info("Start Handling Complete")
 
 	// advance stage from Initializing to Running
+	// when we advance for the first time, we've just finished the start handler (if there is one),
+	// so we update Status.CurrentWeightDistribution
 	// when we advance for the first time, we exit to force update; will be retriggered
 	if ok := r.advanceStage(ctx, instance, v2alpha1.ExperimentStageRunning); ok {
-		log.Info("Reconcile ending after advance to Running")
+		log.Info("Updating stage advance to: Running")
+		updateObservedWeights(ctx, instance, r.RestConfig)
 		return r.endRequest(ctx, instance)
 	}
 
@@ -340,8 +339,11 @@ func (r *ExperimentReconciler) endExperiment(ctx context.Context, instance *v2al
 	defer log.Info("endExperiment completed")
 
 	// advance stage from Finishing to Completed
+	// when we advance to Completed for the first time, any terminal handler has completed. We update
+	// Status.CurrentWeightDistribution to reflect any possible change to distributiom.
 	// when we do so for the first time, record the completion event and trigger the next experiment
 	if ok := r.advanceStage(ctx, instance, v2alpha1.ExperimentStageCompleted); ok {
+		log.Info("Updating stage advance to: Completed")
 		r.recordExperimentCompleted(ctx, instance, msg)
 		r.updateStatus(ctx, instance)
 		r.triggerNextExperiment(ctx, instance)
@@ -512,8 +514,12 @@ func (r *ExperimentReconciler) checkHandlerStatus(ctx context.Context, instance 
 			// terminal handler completed; we end the experiment
 			result, err := r.endExperiment(ctx, instance, "Experiment Completed")
 			return stop, result, err
-		default: // HandlerTypeStart, HandlerTypeLoop
-			// otherwise, we continue processing
+		case HandlerTypeLoop:
+			// we update Status.CurrentWeightDistribution then allow reconcile to continue
+			updateObservedWeights(ctx, instance, r.RestConfig)
+			return !stop, dummyResult, nil
+		default: // HandlerTypeStart
+			// allow reconcile to continue
 			return !stop, dummyResult, nil
 		}
 	case HandlerStatusFailed:

@@ -21,6 +21,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"math"
+	"strings"
 
 	v2alpha1 "github.com/iter8-tools/etc3/api/v2alpha1"
 	"github.com/iter8-tools/etc3/util"
@@ -239,4 +241,124 @@ func patchWeight(ctx context.Context, objRef *corev1.ObjectReference, patches []
 	}
 
 	return dr.Patch(ctx, objRef.Name, types.JSONPatchType, data, metav1.PatchOptions{})
+}
+
+func observeWeight(ctx context.Context, objRef *corev1.ObjectReference, restCfg *rest.Config) (*int32, error) {
+	log := util.Logger(ctx)
+	log.Info("observeWeight called", "objRef", objRef)
+	defer log.Info("observeWeight ended")
+
+	dr, err := getDynamicResourceInterface(restCfg, objRef)
+	if err != nil {
+		log.Error(err, "Unable to get dynamic resource interface")
+		return nil, err
+	}
+
+	// read object from cluster using unstructured client
+	obj, err := dr.Get(ctx, objRef.Name, metav1.GetOptions{})
+	if err != nil {
+		log.Error(err, "Unable to read object in cluster", "name", objRef.Name)
+		return nil, err
+	}
+	log.Info("observeWeight", "referenced object", obj)
+
+	// convert unstructured object to JSON object
+	resultJSON, err := obj.MarshalJSON()
+	if err != nil {
+		log.Error(err, "Unable to convert resource to JSON object")
+		return nil, err
+	}
+	log.Info("observeWeight", "as JSON", resultJSON)
+
+	// convert JSON object to Go map
+	resultObj := make(map[string]interface{})
+	err = json.Unmarshal(resultJSON, &resultObj)
+	if err != nil {
+		log.Error(err, "Unable to parse JSON object")
+		return nil, err
+	}
+	log.Info("observeWeight", "Go object", resultObj)
+
+	if len(objRef.FieldPath) == 0 {
+		log.Error(err, "Unable to read zero length field", "objRef", objRef, "obj", obj)
+		return nil, errors.New("No fieldpath specified in referencing object")
+	}
+
+	path := objRef.FieldPath
+	if objRef.FieldPath[0] == '/' {
+		path = path[1:]
+
+	}
+
+	fieldPath := strings.Split(path, "/")
+	log.Info("observeWeight", "path", objRef.FieldPath, "path", path)
+	fValue, found, err := unstructured.NestedFloat64(resultObj, fieldPath...)
+	if !found {
+		log.Error(err, "Unable to read field; not found", "objRef", objRef, "obj", obj)
+		return nil, errors.New("No such field")
+	}
+	if err != nil {
+		log.Error(err, "Unable to read field; unexpected type", "objRef", objRef, "obj", obj)
+		return nil, err
+	}
+
+	int32Value := int32(math.Round(fValue))
+
+	return &int32Value, nil
+}
+
+func updateObservedWeights(ctx context.Context, instance *v2alpha1.Experiment, restCfg *rest.Config) {
+	log := util.Logger(ctx)
+	log.Info("updateObservedWeights called")
+	defer log.Info("updateObservedWeights  ended")
+
+	// cannot proceed if no version info
+	if instance.Spec.VersionInfo == nil {
+		return
+	}
+
+	observedWeights := make([]v2alpha1.WeightData, 0)
+	missing := []string{}
+	total := int32(0)
+
+	// baseline
+	b := instance.Spec.VersionInfo.Baseline
+	if b.WeightObjRef != nil {
+		w, err := observeWeight(ctx, b.WeightObjRef, restCfg)
+		// if an error occurs, we ignore it (was logged in observeWeight())
+		// it just means that no weight was observed for this version
+		if err != nil {
+			observedWeights = append(observedWeights, v2alpha1.WeightData{Name: b.Name, Value: *w})
+			total += *w
+		} else if missing == nil {
+			missing = append(missing, b.Name)
+		}
+	}
+
+	// candidates
+	for _, c := range instance.Spec.VersionInfo.Candidates {
+		if c.WeightObjRef != nil {
+			w, err := observeWeight(ctx, c.WeightObjRef, restCfg)
+			// if an error occurs, we ignore it (was logged in observeWeight())
+			// it just means that no weight was observed for this version
+			if err != nil {
+				observedWeights = append(observedWeights, v2alpha1.WeightData{Name: c.Name, Value: *w})
+				total += *w
+			} else if missing == nil {
+				missing = append(missing, c.Name)
+			}
+		}
+	}
+
+	// if there was one missing we can compute it; otherwise we'll leave gaps in the observed weights
+	if len(missing) == 1 {
+		log.Info("Computing weight", "missing", missing[0])
+		w := int32(100) - total
+		observedWeights = append(observedWeights, v2alpha1.WeightData{Name: missing[0], Value: w})
+	} else if len(missing) > 1 {
+		log.Info("Multiple weights could not be read from cluster", "missing", missing)
+	}
+
+	// assign list of observed weights
+	instance.Status.CurrentWeightDistribution = observedWeights
 }
