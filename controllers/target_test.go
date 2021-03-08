@@ -32,10 +32,10 @@ var _ = Describe("Target Acquisition", func() {
 	BeforeEach(func() {
 		testNamespace = "default"
 
-		k8sClient.DeleteAllOf(ctx(), &v2alpha1.Experiment{})
+		k8sClient.DeleteAllOf(ctx(), &v2alpha1.Experiment{}, client.InNamespace(testNamespace))
 	})
 	AfterEach(func() {
-		k8sClient.DeleteAllOf(ctx(), &v2alpha1.Experiment{})
+		k8sClient.DeleteAllOf(ctx(), &v2alpha1.Experiment{}, client.InNamespace(testNamespace))
 	})
 
 	// This is indirectly tested by the test case below; this is an explicit test
@@ -143,10 +143,10 @@ var _ = Describe("Finalizer", func() {
 	BeforeEach(func() {
 		testNamespace = "default"
 
-		k8sClient.DeleteAllOf(ctx(), &v2alpha1.Experiment{})
+		k8sClient.DeleteAllOf(ctx(), &v2alpha1.Experiment{}, client.InNamespace(testNamespace))
 	})
 	AfterEach(func() {
-		k8sClient.DeleteAllOf(ctx(), &v2alpha1.Experiment{})
+		k8sClient.DeleteAllOf(ctx(), &v2alpha1.Experiment{}, client.InNamespace(testNamespace))
 	})
 
 	Context("Experiment wanting to acquire a target", func() {
@@ -175,7 +175,7 @@ var _ = Describe("Finalizer", func() {
 		It("will acquire the target when a holder is deleted", func() {
 			By("Creating an experiment with a unique target name")
 			Expect(k8sClient.Create(ctx(), has)).Should(Succeed())
-			Eventually(func() bool { return hasTarget(hasName, testNamespace) }).Should(BeTrue())
+			Eventually(func() bool { return hasTarget(hasName, testNamespace) }, 5).Should(BeTrue())
 			// Eventually hasName should be Running
 			Eventually(func() bool {
 				return hasValue(hasName, testNamespace, func(exp *v2alpha1.Experiment) bool {

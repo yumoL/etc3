@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/go-logr/logr"
@@ -56,6 +57,7 @@ var testEnv *envtest.Environment
 var lg logr.Logger = ctrl.Log.WithName("etc3").WithName("test")
 var recorder record.EventRecorder
 var reconciler *ExperimentReconciler
+var events []string
 
 type testHTTP struct {
 	analysis *v2alpha1.Analysis
@@ -73,13 +75,13 @@ func (t *testHTTP) Post(url, contentType string, body []byte) ([]byte, int, erro
 type testRecorder struct{}
 
 func (r testRecorder) Event(object runtime.Object, eventtype, reason, message string) {
-	fmt.Printf("%s (%s): %s\n", eventtype, reason, message)
+	events = append(events, fmt.Sprintf("%s (%s): %s\n", eventtype, reason, message))
 }
 func (r testRecorder) Eventf(object runtime.Object, eventtype, reason, messageFmt string, args ...interface{}) {
-	fmt.Printf("%s (%s): %s\n", eventtype, reason, fmt.Sprintf(messageFmt, args...))
+	events = append(events, fmt.Sprintf("%s (%s): %s\n", eventtype, reason, fmt.Sprintf(messageFmt, args...)))
 }
 func (r testRecorder) AnnotatedEventf(object runtime.Object, annotations map[string]string, eventtype, reason, messageFmt string, args ...interface{}) {
-	fmt.Printf("%s (%s): %s\n", eventtype, reason, fmt.Sprintf(messageFmt, args...))
+	events = append(events, fmt.Sprintf("%s (%s): %s\n", eventtype, reason, fmt.Sprintf(messageFmt, args...)))
 }
 
 func TestAPIs(t *testing.T) {
@@ -130,6 +132,9 @@ var _ = BeforeSuite(func(done Done) {
 	// Create iter8 namespace for use by some tests
 	Expect(k8sClient.Create(ctx(), &corev1.Namespace{
 		ObjectMeta: metav1.ObjectMeta{Name: "iter8"},
+	})).Should(Succeed())
+	Expect(k8sClient.Create(ctx(), &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{Name: "metric-namespace"},
 	})).Should(Succeed())
 
 	testTransport := &testHTTP{
@@ -222,6 +227,18 @@ func completesSuccessfully(name string, ns string) bool {
 	return completed && successful
 }
 
+func fails(name string, ns string) bool {
+	exp := &v2alpha1.Experiment{}
+	err := k8sClient.Get(ctx(), types.NamespacedName{Name: name, Namespace: ns}, exp)
+	if err != nil {
+		return false
+	}
+	completed := exp.Status.GetCondition(v2alpha1.ExperimentConditionExperimentCompleted).IsTrue()
+	failed := exp.Status.GetCondition(v2alpha1.ExperimentConditionExperimentFailed).IsTrue()
+
+	return completed && failed
+}
+
 func isDeleted(name string, ns string) bool {
 	exp := &v2alpha1.Experiment{}
 	err := k8sClient.Get(context.Background(), types.NamespacedName{Name: name, Namespace: ns}, exp)
@@ -240,6 +257,22 @@ func hasValue(name string, ns string, check check) bool {
 	return check(exp)
 }
 
+func isRunning(name string, ns string) bool {
+	return hasValue(name, ns, func(exp *v2alpha1.Experiment) bool {
+		return exp.Status.Stage != nil && *exp.Status.Stage == v2alpha1.ExperimentStageRunning
+	})
+}
+
 func ctx() context.Context {
 	return context.WithValue(context.Background(), util.LoggerKey, ctrl.Log)
+}
+
+// Helper functions to check and remove string from a slice of strings.
+func containsSubString(slice []string, s string) bool {
+	for _, item := range slice {
+		if strings.Contains(item, s) {
+			return true
+		}
+	}
+	return false
 }
