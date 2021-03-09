@@ -17,8 +17,6 @@ limitations under the License.
 package v2alpha2
 
 import (
-	"strings"
-
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -48,9 +46,9 @@ func (b *MetricBuilder) WithDescription(description string) *MetricBuilder {
 
 // WithParams ..
 func (b *MetricBuilder) WithParams(params map[string]string) *MetricBuilder {
-	paramsList := make([]Param, 0)
+	paramsList := make([]NamedValue, 0)
 	for name, value := range params {
-		paramsList = append(paramsList, Param{Name: name, Value: value})
+		paramsList = append(paramsList, NamedValue{Name: name, Value: value})
 	}
 	b.Spec.Params = &paramsList
 	return b
@@ -76,20 +74,29 @@ func (b *MetricBuilder) WithProvider(provider string) *MetricBuilder {
 
 // WithSampleSize ..
 func (b *MetricBuilder) WithSampleSize(name string) *MetricBuilder {
+	b.Spec.SampleSize = &name
+	return b
+}
 
-	var namespace *string
-	splt := strings.Split(name, "/")
-	if len(splt) == 2 {
-		namespace = &splt[0]
-		name = splt[1]
-	} else {
-		namespace = nil
-	}
+// WithSecret ..
+func (b *MetricBuilder) WithSecretRef(name string) *MetricBuilder {
+	b.Spec.SecretRef = &name
+	return b
+}
 
-	b.Spec.SampleSize = &MetricReference{
-		Namespace: namespace,
-		Name:      name,
+// WithHeaders ..
+func (b *MetricBuilder) WithHeaderTemplates(params map[string]string) *MetricBuilder {
+	paramsList := make([]NamedValue, 0)
+	for name, value := range params {
+		paramsList = append(paramsList, NamedValue{Name: name, Value: value})
 	}
+	b.Spec.HeaderTemplates = &paramsList
+	return b
+}
+
+// WithURLTemplate ..
+func (b *MetricBuilder) WithURLTemplate(urlTemplate string) *MetricBuilder {
+	b.Spec.URLTemplate = urlTemplate
 	return b
 }
 
