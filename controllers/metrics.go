@@ -69,6 +69,25 @@ func (r *ExperimentReconciler) ReadMetric(ctx context.Context, instance *v2alpha
 	return true
 }
 
+// MeticsRead checks if the metrics have already been read and stored in status
+func shouldReadMetrics(instance *v2alpha2.Experiment) bool {
+	if len(instance.Status.Metrics) > 0 {
+		return false
+	}
+	if instance.Spec.Criteria == nil {
+		return false
+	}
+
+	if instance.Spec.Criteria.RequestCount == nil &&
+		len(instance.Spec.Criteria.Indicators) == 0 &&
+		len(instance.Spec.Criteria.Objectives) == 0 &&
+		len(instance.Spec.Criteria.Rewards) == 0 {
+		return false
+	}
+
+	return true
+}
+
 // ReadMetrics reads needed metrics from cluster and caches them in the experiment
 // result is false if an error occurred reading metrics
 func (r *ExperimentReconciler) ReadMetrics(ctx context.Context, instance *v2alpha2.Experiment) bool {
@@ -77,9 +96,6 @@ func (r *ExperimentReconciler) ReadMetrics(ctx context.Context, instance *v2alph
 	defer log.Info("ReadMetrics completed")
 
 	criteria := instance.Spec.Criteria
-	if len(instance.Spec.Metrics) > 0 || criteria == nil {
-		return true
-	}
 
 	namespace := instance.GetObjectMeta().GetNamespace()
 	metricsCache := make(map[string]*v2alpha2.Metric)
@@ -118,7 +134,7 @@ func (r *ExperimentReconciler) ReadMetrics(ctx context.Context, instance *v2alph
 
 	// found all metrics; copy into instance.Spec
 	for name, obj := range metricsCache {
-		instance.Spec.Metrics = append(instance.Spec.Metrics,
+		instance.Status.Metrics = append(instance.Status.Metrics,
 			v2alpha2.MetricInfo{Name: name, MetricObj: *obj})
 	}
 	return true
