@@ -45,12 +45,8 @@ func (b *MetricBuilder) WithDescription(description string) *MetricBuilder {
 }
 
 // WithParams ..
-func (b *MetricBuilder) WithParams(params map[string]string) *MetricBuilder {
-	paramsList := make([]NamedValue, 0)
-	for name, value := range params {
-		paramsList = append(paramsList, NamedValue{Name: name, Value: value})
-	}
-	b.Spec.Params = &paramsList
+func (b *MetricBuilder) WithParams(params []NamedValue) *MetricBuilder {
+	b.Spec.Params = params
 	return b
 }
 
@@ -62,13 +58,31 @@ func (b *MetricBuilder) WithUnits(units string) *MetricBuilder {
 
 // WithType ..
 func (b *MetricBuilder) WithType(t MetricType) *MetricBuilder {
-	b.Spec.Type = t
+	b.Spec.Type = &t
 	return b
 }
 
 // WithProvider ..
 func (b *MetricBuilder) WithProvider(provider string) *MetricBuilder {
-	b.Spec.Provider = provider
+	b.Spec.Provider = &provider
+	return b
+}
+
+// WithMethod ..
+func (b *MetricBuilder) WithMethod(method MethodType) *MetricBuilder {
+	b.Spec.Method = &method
+	return b
+}
+
+// WithAuthType ..
+func (b *MetricBuilder) WithAuthType(authType AuthType) *MetricBuilder {
+	b.Spec.AuthType = &authType
+	return b
+}
+
+// WithBody ..
+func (b *MetricBuilder) WithBody(body string) *MetricBuilder {
+	b.Spec.Body = &body
 	return b
 }
 
@@ -85,12 +99,8 @@ func (b *MetricBuilder) WithSecret(name string) *MetricBuilder {
 }
 
 // WithHeaders ..
-func (b *MetricBuilder) WithHeaderTemplates(params map[string]string) *MetricBuilder {
-	paramsList := make([]NamedValue, 0)
-	for name, value := range params {
-		paramsList = append(paramsList, NamedValue{Name: name, Value: value})
-	}
-	b.Spec.HeaderTemplates = &paramsList
+func (b *MetricBuilder) WithHeaderTemplates(headerTemplates []NamedValue) *MetricBuilder {
+	b.Spec.HeaderTemplates = headerTemplates
 	return b
 }
 
