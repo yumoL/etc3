@@ -56,6 +56,7 @@ type ExperimentReconciler struct {
 	Iter8Config   configuration.Iter8Config
 	HTTP          analytics.HTTP
 	ReleaseEvents chan event.GenericEvent
+	JobManager    JobManager
 }
 
 /* RBAC roles are handwritten in config/rbac-iter8 so that different roles can be assigned
@@ -467,8 +468,10 @@ func (r *ExperimentReconciler) checkHandlerStatus(ctx context.Context, instance 
 			return !stop, dummyResult, nil
 		}
 	case HandlerStatusFailed:
-		// a failure handler failed; don't call it again; just stop
-		result, err := r.endExperiment(ctx, instance, fmt.Sprintf("%s actions failed", handlerType))
+		// a handler failed; don't call a failure handler; just stop
+		msg := fmt.Sprintf("%s actions failed", handlerType)
+		r.recordExperimentFailed(ctx, instance, v2alpha2.ReasonHandlerFailed, msg)
+		result, err := r.endExperiment(ctx, instance, msg)
 		return stop, result, err
 	default: // HandlerStatusNotLaunched, HandlerStatusNoHandler:
 		return !stop, dummyResult, nil
