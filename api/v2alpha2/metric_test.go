@@ -20,6 +20,7 @@ import (
 	"path"
 
 	"github.com/ghodss/yaml"
+	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/iter8-tools/etc3/api/v2alpha2"
@@ -57,6 +58,8 @@ var _ = Describe("Metrics Not Created When Invalid", func() {
 
 var _ = Describe("Metrics Are Created When Valid", func() {
 	ctx := context.Background()
+	jqe := "expr"
+	url := "url"
 
 	Context("When metric is valid", func() {
 		metric := v2alpha2.NewMetric("test", "default").
@@ -68,8 +71,18 @@ var _ = Describe("Metrics Are Created When Valid", func() {
 			WithType(v2alpha2.GaugeMetricType).
 			WithSampleSize("namespace/name").
 			WithProvider("provider").
-			WithJQExpression("expr").
-			WithURLTemplate("url").
+			WithJQExpression(&jqe).
+			WithURLTemplate(&url).
+			WithMock([]v2alpha2.NamedLevel{
+				{
+					Name:  "sample-app-v1",
+					Level: resource.MustParse("2.5"),
+				},
+				{
+					Name:  "sample-app-v2",
+					Level: resource.MustParse("3.5"),
+				},
+			}).
 			Build()
 
 		It("should be created", func() {
@@ -81,6 +94,8 @@ var _ = Describe("Metrics Are Created When Valid", func() {
 
 var _ = Describe("Metrics with method", func() {
 	ctx := context.Background()
+	jqe := "expr"
+	url := "url"
 
 	Context("When a metric is created with the method field", func() {
 		metric := v2alpha2.NewMetric("test", "default").
@@ -93,8 +108,8 @@ var _ = Describe("Metrics with method", func() {
 			WithMethod(v2alpha2.POSTMethodType).
 			WithSampleSize("namespace/name").
 			WithProvider("provider").
-			WithJQExpression("expr").
-			WithURLTemplate("url").
+			WithJQExpression(&jqe).
+			WithURLTemplate(&url).
 			Build()
 
 		It("the method field is preserved", func() {
@@ -119,8 +134,8 @@ var _ = Describe("Metrics with method", func() {
 			WithType(v2alpha2.GaugeMetricType).
 			WithSampleSize("namespace/name").
 			WithProvider("provider").
-			WithJQExpression("expr").
-			WithURLTemplate("url").
+			WithJQExpression(&jqe).
+			WithURLTemplate(&url).
 			Build()
 
 		It("the method field is defaulted to GET", func() {
@@ -138,6 +153,8 @@ var _ = Describe("Metrics with method", func() {
 
 var _ = Describe("Metrics with authtype", func() {
 	ctx := context.Background()
+	jqe := "expr"
+	url := "url"
 
 	Context("When a metric is created with the authType field", func() {
 		metric := v2alpha2.NewMetric("test", "default").
@@ -151,8 +168,8 @@ var _ = Describe("Metrics with authtype", func() {
 			WithAuthType(v2alpha2.BasicAuthType).
 			WithSampleSize("namespace/name").
 			WithProvider("provider").
-			WithJQExpression("expr").
-			WithURLTemplate("url").
+			WithJQExpression(&jqe).
+			WithURLTemplate(&url).
 			Build()
 
 		It("the authtype field is preserved", func() {
@@ -177,8 +194,8 @@ var _ = Describe("Metrics with authtype", func() {
 			WithType(v2alpha2.GaugeMetricType).
 			WithSampleSize("namespace/name").
 			WithProvider("provider").
-			WithJQExpression("expr").
-			WithURLTemplate("url").
+			WithJQExpression(&jqe).
+			WithURLTemplate(&url).
 			Build()
 
 		It("the AuthType field is not defaulted", func() {

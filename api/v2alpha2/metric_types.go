@@ -24,6 +24,7 @@ limitations under the License.
 package v2alpha2
 
 import (
+	resource "k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -65,6 +66,20 @@ const (
 	// POSTMethodType corresponds to HTTP POST method
 	POSTMethodType MethodType = "POST"
 )
+
+// NamedLevel contains the name of a version and the level of the version to be used in mock metric generation.
+// The semantics of level are the following:
+// If the metric is a counter, if level is x, and time elapsed since the start of the experiment is y, then x*y is the metric value.
+// Note: this will keep increasing over time as counters do.
+// If the metric is gauge, if level is x, the metric value is a random value with mean x.
+// Note: due to randomness, this stay around x but can go up or down as a gauges do.
+type NamedLevel struct {
+	// Name of the version
+	Name string `json:"name" yaml:"name"`
+
+	// Level of the version
+	Level resource.Quantity `json:"level" yaml:"level"`
+}
 
 // MetricSpec defines the attributes of the Metric
 type MetricSpec struct {
@@ -114,7 +129,8 @@ type MetricSpec struct {
 
 	// JQExpression defines the jq expression used by Iter8 to extract the metric value from the (JSON) response returned by the HTTP URL queried by Iter8.
 	// An empty string is a valid jq expression.
-	JQExpression string `json:"jqExpression" yaml:"jqExpression"`
+	// +optional
+	JQExpression *string `json:"jqExpression,omitempty" yaml:"jqExpression,omitempty"`
 
 	// Secret is a reference to the Kubernetes secret.
 	// Secret contains data used for HTTP authentication.
@@ -133,7 +149,14 @@ type MetricSpec struct {
 	// However, as indicated by its name, URLTemplate may be templated.
 	// In this case, Iter8 will attempt to substitute placeholders in the URLTemplate at query time using Secret.
 	// Placeholder substitution will be attempted only when Secret != nil.
-	URLTemplate string `json:"urlTemplate" yaml:"urlTemplate"`
+	// +optional
+	URLTemplate *string `json:"urlTemplate,omitempty" yaml:"urlTemplate,omitempty"`
+
+	// Mock enables mocking of metric values, which is useful in tests and tutorial/documentation.
+	// Iter8 metrics can be either counter (which keep increasing over time) or gauge (which can increase or decrease over time).
+	// Mock enables mocking of both.
+	// +optional
+	Mock []NamedLevel `json:"mock,omitempty" yaml:"mock,omitempty"`
 }
 
 // +kubebuilder:object:root=true
