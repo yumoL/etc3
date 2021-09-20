@@ -3,9 +3,11 @@ package cmd
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 
 	"github.com/iter8-tools/etc3/api/v2alpha2"
+	"github.com/iter8-tools/etc3/controllers"
 	"github.com/iter8-tools/etc3/taskrunner/core"
 	"github.com/iter8-tools/etc3/taskrunner/tasks/bash"
 	"github.com/iter8-tools/etc3/taskrunner/tasks/collect"
@@ -58,14 +60,15 @@ func GetAction(exp *core.Experiment, actionSpec v2alpha2.Action) (core.Action, e
 // run is a helper function used in the definition of runCmd cobra command.
 func run(cmd *cobra.Command, args []string) error {
 	nn, err := getExperimentNN()
+	var exp *core.Experiment
 	if err == nil {
-		var exp *core.Experiment
 		if exp, err = (&core.Builder{}).FromCluster(nn).Build(); err == nil {
 			var actionSpec v2alpha2.Action
 			if actionSpec, err = exp.GetActionSpec(action); err == nil {
 				var action core.Action
 				if action, err = GetAction(exp, actionSpec); err == nil {
 					ctx := context.WithValue(context.Background(), core.ContextKey("experiment"), exp)
+					// pass in the type of action within context ...
 					log.Trace("created context for experiment")
 					err = action.Run(ctx)
 					if err == nil {
@@ -78,6 +81,20 @@ func run(cmd *cobra.Command, args []string) error {
 			}
 		}
 	}
+
+	if err != nil {
+		il := controllers.Iter8Log{
+			IsIter8Log:          true,
+			ExperimentName:      exp.Name,
+			ExperimentNamespace: exp.Namespace,
+			Source:              controllers.Iter8LogSourceTR,
+			Priority:            0,
+			Message:             err.Error(),
+			Precedence:          core.GetIter8LogPrecedence(exp, action),
+		}
+		fmt.Println(il.JSON())
+	}
+
 	return err
 }
 
