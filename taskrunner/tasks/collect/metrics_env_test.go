@@ -41,6 +41,7 @@ var _ = Describe("metrics library", func() {
 
 			By("populating context with the experiment")
 			ctx := context.WithValue(context.Background(), core.ContextKey("experiment"), exp2)
+			ctx = context.WithValue(ctx, core.ContextKey("action"), "start")
 
 			By("creating a metrics/collect task")
 			ct := CollectTask{
@@ -97,7 +98,7 @@ var _ = Describe("metrics library", func() {
 			Expect(fortioData).ToNot(BeNil())
 			Expect(fortioData["default"]).ToNot(BeNil())
 			Expect(fortioData["canary"]).ToNot(BeNil())
-			Expect(fortioData["canary"].DurationHistogram.Count).To(Equal(80))
+			Expect(fortioData["canary"].DurationHistogram.Count).To(Equal(int(2 * DefaultNumQueries)))
 		}) // it
 
 		It("should initialize an experiment", func() {
@@ -117,6 +118,7 @@ var _ = Describe("metrics library", func() {
 
 			By("populating context with the experiment")
 			ctx := context.WithValue(context.Background(), core.ContextKey("experiment"), exp2)
+			ctx = context.WithValue(ctx, core.ContextKey("action"), "start")
 
 			By("creating a metrics/collect task")
 			ct := CollectTask{
