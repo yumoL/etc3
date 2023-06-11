@@ -312,6 +312,9 @@ func (e *Experiment) GetAnnotatedMetricStrs(reward v2alpha2.Reward) []string {
 	var currentBestIndex *int
 	var currentBestValue *inf.Dec
 	for i, v := range versions {
+		// If we directly use currentBestIndex, currentBestValue = &i, val, currentBestIndex refers to the address of i but the i value itself changes all the time in the loop.
+		// Concequently, *currentBestIndex will become the last i value
+		index := i
 		val := e.GetMetricDec(reward.Metric, v)
 
 		if val == nil {
@@ -323,7 +326,7 @@ func (e *Experiment) GetAnnotatedMetricStrs(reward v2alpha2.Reward) []string {
 
 		// set currentBest if not already set
 		if currentBestIndex == nil {
-			currentBestIndex, currentBestValue = &i, val
+			currentBestIndex, currentBestValue = &index, val
 			continue
 		}
 
@@ -331,14 +334,14 @@ func (e *Experiment) GetAnnotatedMetricStrs(reward v2alpha2.Reward) []string {
 
 		if reward.PreferredDirection == v2alpha2.PreferredDirectionHigher {
 			if -1 == currentBestValue.Cmp(val) {
-				currentBestIndex, currentBestValue = &i, val
+				currentBestIndex, currentBestValue = &index, val
 			}
 			continue
 		}
 
 		// reward.PreferredDirection == v2alpha2.PreferredDirectionLower
 		if currentBestValue.Cmp(val) == 1 {
-			currentBestIndex, currentBestValue = &i, val
+			currentBestIndex, currentBestValue = &index, val
 		}
 	}
 
